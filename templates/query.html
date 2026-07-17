@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GyradoX Query Builder</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --card: rgba(17,26,43,0.95);
+      --text: #d7e3ff;
+      --input-bg: rgba(14,22,34,0.92);
+      --border: rgba(58,77,109,0.9);
+      --accent: #39ff14;
+    }
+
+    html,body{height:100%;margin:0;background:transparent;font-family:Arial,Helvetica,sans-serif}
+    body{display:flex;align-items:center;justify-content:center;overflow-y:auto;color:var(--text);padding:28px}
+
+    .holo{font-family:'Orbitron',sans-serif;color:var(--accent);font-size:32px;font-weight:700;position:fixed;top:18px;left:50%;transform:translateX(-50%);text-shadow:0 0 8px var(--accent),0 0 16px rgba(57,255,20,0.6);z-index:10}
+
+    .container{width:100%;max-width:1100px;padding:28px;border-radius:14px;background:var(--card);backdrop-filter:blur(6px);box-shadow:0 10px 40px rgba(0,0,0,0.5);z-index:5;max-height:70vh;overflow-y:auto}
+
+    .h-row{display:flex;flex-direction:column;gap:14px;width:100%;margin-bottom:18px}
+    .h-item{display:flex;flex-direction:column;gap:6px}
+    label b{color:#fff}
+    textarea, input{width:100%;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);font-size:14px;min-height:44px}
+    textarea{min-height:80px;resize:vertical}
+
+    .actions{display:flex;justify-content:center;gap:12px;margin-top:8px}
+    button#searchBtn{min-width:180px;padding:12px 18px;border-radius:10px;border:none;background:var(--accent);color:#001;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(57,255,20,0.06)}
+
+    .result-card{margin-top:12px;padding:12px;border-radius:10px;background:rgba(6,10,18,0.85);border:1px solid rgba(60,60,80,0.18);white-space:pre-wrap}
+
+    #constellationCanvas{position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:-1;pointer-events:none;background:transparent}
+
+    body::before{content:"";position:fixed;inset:0;z-index:-2;background:radial-gradient(circle at center, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.7) 40%, rgba(0,0,0,0.88) 100%);}
+
+    @media (max-width: 700px){.container{padding:18px}.holo{font-size:22px}}
+    .gx-logo { width: 80px; position: fixed; top: 18px; left: 20px; z-index: 15; filter: drop-shadow(0 0 10px #39ff14); }
+  </style>
+</head>
+<body>
+  
+  <img src="{{ url_for('static', filename='logo.png') }}" class="gx-logo" alt="GyradoX Logo">
+  <h1 class="holo">GyradoX Query Builder</h1>
+
+  <canvas id="constellationCanvas" aria-hidden="true"></canvas>
+
+  <div class="container" role="main">
+    <div class="h-row">
+      <div class="h-item">
+        <label for="ipInput"><b>Enter IOC IP</b></label>
+        <textarea id="ipInput" placeholder="" aria-label="Enter IOC IPs"></textarea>
+      </div>
+      <div class="h-item">
+        <label for="urlInput"><b>Enter IOC URL/Domain</b></label>
+        <textarea id="urlInput" placeholder="" aria-label="Enter IOC URLs or domains"></textarea>
+      </div>
+      <div class="h-item">
+        <label for="hashInput"><b>Enter IOC Hashes</b></label>
+        <textarea id="hashInput" placeholder="" aria-label="Enter IOC hashes"></textarea>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="searchBtn">Build KQL Query</button>
+      <button id="copyBtn" style="min-width:160px;padding:12px 18px;border-radius:10px;border:none;background:var(--accent);color:#001;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(57,255,20,0.15);">Copy Query</button>
+    </div>
+
+    <div id="results" style="display:block;margin-top:18px;max-height:40vh;overflow-y:auto;"></div>
+  </div>
+
+  <div id="copyToast" style="position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:rgba(57,255,20,0.9);color:#001;padding:12px 22px;border-radius:10px;font-weight:700;font-family:'Orbitron',sans-serif;box-shadow:0 0 14px #39ff14;opacity:0;pointer-events:none;transition:opacity .3s, transform .3s;z-index:99999">Copied!</div>
+  <div id="signatureSR" style="position:fixed;right:20px;bottom:12px;color:#39ff14;font-family:'Orbitron',sans-serif;font-size:14px;opacity:0.85;z-index:9999;letter-spacing:2px;text-shadow:0 0 6px #39ff14,0 0 12px rgba(57,255,20,0.6);">SR</div>
+
+  <script>
+    (function(){
+      window.copyText = function(v){
+        try{
+          const temp = document.createElement('textarea');
+          temp.value = v || '';
+          document.body.appendChild(temp);
+          temp.select();
+          document.execCommand('copy');
+          document.body.removeChild(temp);
+        }catch(e){ console.warn('copy failed', e); }
+        const t = document.getElementById('copyToast');
+        if(t){ t.style.opacity = '1'; t.style.transform = 'translateX(-50%) translateY(-10px)'; setTimeout(()=>{ t.style.opacity = '0'; t.style.transform = 'translateX(-50%) translateY(0px)'; }, 1200); }
+      };
+    })();
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const $ = id => document.getElementById(id);
+      const ipEl = $('ipInput');
+      const urlEl = $('urlInput');
+      const hashEl = $('hashInput');
+      const resultsEl = $('results');
+      const searchBtn = $('searchBtn');
+      const copyBtn = $('copyBtn');
+      let lastQuery = '';
+
+      function buildArrayLiteral(lines){
+        return lines.map(s => '"' + s.replace(/"/g, '\\"') + '"').join(', ');
+      }
+
+      function showResults(html){
+        resultsEl.style.display = 'block';
+        resultsEl.innerHTML = html;
+        resultsEl.scrollIntoView({behavior:'smooth', block:'start'});
+      }
+
+      function buildKqlFromIps(ipRaw){
+        if(!ipRaw) return null;
+        const ipList = ipRaw.split(/\n+/).map(x => x.trim()).filter(x => x);
+        if(ipList.length === 0) return null;
+        const arr = buildArrayLiteral(ipList);
+        return `let suspicious_ioc = dynamic([\n    ${arr}\n]);\nlogs \n| where src_ip4 has_any (suspicious_ioc) or \n        dst_ip4 has_any (suspicious_ioc) or \n        dst_host has_any (suspicious_ioc)\n| project data_source, src_ip4, dst_ip4, dst_port, src_host, action`;
+      }
+
+      // Enforce single input
+      function enforceSingleField(){
+        const ip = ipEl.value.trim();
+        const url = urlEl.value.trim();
+        const hash = hashEl.value.trim();
+
+        if(ip){ urlEl.disabled = true; hashEl.disabled = true; }
+        else if(url){ ipEl.disabled = true; hashEl.disabled = true; }
+        else if(hash){ ipEl.disabled = true; urlEl.disabled = true; }
+        else {
+          ipEl.disabled = false;
+          urlEl.disabled = false;
+          hashEl.disabled = false;
+        }
+      }
+
+      ipEl.addEventListener('input', enforceSingleField);
+      urlEl.addEventListener('input', enforceSingleField);
+      hashEl.addEventListener('input', enforceSingleField);
+
+      function buildKqlFromUrls(urlRaw){
+        if(!urlRaw) return null;
+        const urlList = urlRaw.split(/\n+/).map(x => x.trim()).filter(x => x);
+        if(urlList.length === 0) return null;
+        const arr = buildArrayLiteral(urlList);
+        return `let suspicious_ioc = dynamic([\n    ${arr}\n]);\nlogs \n| where url has_any (suspicious_ioc) or \n        request_url has_any (suspicious_ioc) or \n        domain_name has_any (suspicious_ioc) or \n        dst_domain has_any (suspicious_ioc) or \n        query_name has_any (suspicious_ioc) or \n        dns_query has_any (suspicious_ioc) or \n        dst_host has_any (suspicious_ioc)\n| project data_source, src_ip4, dst_ip4, dst_port, url, request_url, domain_name, dst_domain, dns_query, dst_host, action`;
+      }
+
+      function buildKqlFromHashes(hashRaw){
+        if(!hashRaw) return null;
+        const hashList = hashRaw.split(/\n+/).map(x => x.trim()).filter(x => x);
+        if(hashList.length === 0) return null;
+        const arr = buildArrayLiteral(hashList);
+        return `let suspicious_ioc = dynamic([\n    ${arr}\n]);\nlogs \n| where file_hash_md5 has_any (suspicious_ioc) or \n        file_hash_sha1 has_any (suspicious_ioc) or \n        file_hash_sha256 has_any (suspicious_ioc) or \n        file_hash has_any (suspicious_ioc) or \n        parent_file_hash has_any (suspicious_ioc)\n| project data_source, event_type, src_host, process_name, parent_process_name, commandline, action`;
+      }
+
+      // Hook button
+      searchBtn.addEventListener('click', ()=>{
+        const ipRaw = ipEl.value.trim();
+        const urlRaw = urlEl.value.trim();
+        const hashRaw = hashEl.value.trim();
+
+        let kql = null;
+        if(ipRaw) kql = buildKqlFromIps(ipRaw);
+        else if(urlRaw) kql = buildKqlFromUrls(urlRaw);
+        else if(hashRaw) kql = buildKqlFromHashes(hashRaw);
+
+        if(!kql){ showResults('<div class="result-card">Enter IPs or URLs or Hashes to build query.</div>'); return; }
+
+        const html = `<div class='result-card'><strong>KQL Query</strong><pre>${kql}</pre></div>`;
+        lastQuery = kql;
+        showResults(html);
+      });
+
+      copyBtn.addEventListener('click', ()=>{
+        if(lastQuery) copyText(lastQuery);
+      });
+
+      // -----------------------
+      // simple constellation canvas
+      // -----------------------
+      const canvas = $('constellationCanvas');
+      const ctx = canvas && canvas.getContext ? canvas.getContext('2d') : null;
+      let W = canvas ? (canvas.width = window.innerWidth) : 0;
+      let H = canvas ? (canvas.height = window.innerHeight) : 0;
+      window.addEventListener('resize', ()=>{ if(canvas){ W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; } });
+      const particles = [];
+      for(let i=0;i<50;i++){ particles.push({x:Math.random()*W, y:Math.random()*H, vx:(Math.random()-0.5)*0.3, vy:(Math.random()-0.5)*0.3, r:Math.random()*2+1}); }
+      function step(){ if(!ctx) return; ctx.clearRect(0,0,W,H); for(const p of particles){ p.x+=p.vx; p.y+=p.vy; if(p.x<0||p.x>W) p.vx*=-1; if(p.y<0||p.y>H) p.vy*=-1; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fillStyle='rgba(57,255,20,0.04)'; ctx.fill(); } requestAnimationFrame(step); }
+      if(ctx) step();
+
+    });
+  </script>
+</body>
+</html>

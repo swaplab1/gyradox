@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GyradoX IOC Lookup</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --card: rgba(17,26,43,0.85);
+      --text: #d7e3ff;
+      --input-bg: rgba(14,22,34,0.92);
+      --border: rgba(58,77,109,0.9);
+      --accent: #39ff14;
+    }
+
+    html,body{height:100%;margin:0;background:transparent;font-family:Arial,Helvetica,sans-serif}
+    body{display:flex;align-items:center;justify-content:center;overflow-y:auto;color:var(--text)}
+
+    .holo{font-family:'Orbitron',sans-serif;color:var(--accent);font-size:32px;font-weight:700;position:fixed;top:18px;left:50%;transform:translateX(-50%);text-shadow:0 0 8px var(--accent),0 0 16px rgba(57,255,20,0.6);z-index:10}
+
+    .container{width:calc(100vw - 120px);max-width:1200px;padding:28px;border-radius:14px;background:var(--card);backdrop-filter:blur(6px);box-shadow:0 10px 40px rgba(0,0,0,0.6);z-index:5;transform:translateY(18px);opacity:0;animation:smoothIn .7s ease-out forwards}
+    @keyframes smoothIn{0%{opacity:0;transform:translateY(18px) scale(.98)}60%{opacity:.8;transform:translateY(6px) scale(1.01)}100%{opacity:1;transform:translateY(0) scale(1)}}
+
+    .h-row{display:flex;gap:48px;width:100%;margin-bottom:28px}
+    .h-item{flex:1;display:flex;flex-direction:column;gap:8px}
+    label b{color:#fff}
+    input{width:100%;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);font-size:14px}
+
+    .actions{display:flex;justify-content:center}
+    button#searchBtn{min-width:160px;padding:12px 18px;border-radius:10px;border:none;background:var(--accent);color:#001;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(57,255,20,0.06)}
+    button#searchBtn:disabled{opacity:0.6;cursor:not-allowed}
+
+    .result-card{margin-top:12px;padding:12px;border-radius:10px;background:rgba(6,10,18,0.6);border:1px solid rgba(60,60,80,0.18)}
+    .results-panel{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);width:88vw;max-width:1100px;max-height:38vh;overflow-y:auto;padding:18px;background:rgba(10,15,25,0.78);border:1px solid rgba(80,120,80,0.25);border-radius:14px;backdrop-filter:blur(6px);box-shadow:0 8px 32px rgba(0,0,0,0.45);color:var(--text);z-index:6;display:none}
+
+    #constellationCanvas{position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:-1;pointer-events:none;background:transparent}
+
+    body::before{content:"";position:fixed;inset:0;z-index:-2;background:radial-gradient(circle at center, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.7) 40%, rgba(0,0,0,0.88) 100%);animation:glowPulse 6s ease-in-out infinite alternate}
+    @keyframes glowPulse{0%{filter:brightness(1) blur(0px)}100%{filter:brightness(1.2) blur(6px)}}
+
+    .safe{color:#4caf50;font-weight:700}
+    .warning{color:#ff9800;font-weight:700}
+    .danger{color:#f44336;font-weight:700}
+
+    @media (max-width: 900px){.h-row{flex-direction:column;gap:12px}.container{padding:20px}}
+
+    @keyframes inputTypewriter{0%{box-shadow:0 0 4px #39ff14}50%{box-shadow:0 0 14px #39ff14}100%{box-shadow:0 0 6px #39ff14}}
+    @keyframes inputIdle{0%{filter:brightness(1)}100%{filter:brightness(1.25)}}
+    .typing-effect{animation:inputTypewriter 0.25s ease-out;}
+
+    /* small loader style used inline in results */
+    .loader{width:18px;height:18px;border-radius:50%;border:2px solid rgba(255,255,255,0.06);border-top-color:var(--accent);animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    button:hover{transform:scale(1.05);box-shadow:0 0 18px var(--accent),0 0 28px rgba(57,255,20,0.45);} 
+
+.gx-logo { width: 80px; position: fixed; top: 18px; left: 20px; z-index: 15; filter: drop-shadow(0 0 10px #39ff14); }
+
+</style>
+</head>
+<body>
+
+  
+  <img src="{{ url_for('static', filename='logo.png') }}" class="gx-logo" alt="GyradoX Logo">
+
+  <!-- Login Overlay -->
+  <div id="loginOverlay" class="login-overlay">
+    <div class="login-card">
+      <div class="scanlines"></div>
+      <h2 class="login-title">GyradoX Login</h2>
+      <input id="loginPass" type="password" placeholder="Enter Password" class="login-input">
+      <button id="loginBtn" class="login-btn">Login</button>
+      <p id="loginError" class="login-error">Incorrect password</p>
+    </div>
+  </div>
+
+  <style>
+    .login-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.94);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);animation:fadeInBg 1.2s ease-out forwards}
+    @keyframes fadeInBg{0%{opacity:0}100%{opacity:1}}
+
+    .login-card{width:360px;padding:40px;border-radius:14px;background:rgba(10,16,20,0.85);box-shadow:0 0 26px #39ff14,0 0 80px rgba(57,255,20,0.25);position:relative;overflow:hidden;text-align:center;transform:translateY(40px) scale(0.9);opacity:0;animation:cardPop 0.9s ease-out forwards}
+    @keyframes cardPop{0%{opacity:0;transform:translateY(40px) scale(0.9)}60%{opacity:.8;transform:translateY(8px) scale(1.03)}100%{opacity:1;transform:translateY(0) scale(1)}}
+
+    .scanlines{position:absolute;inset:0;background:repeating-linear-gradient(to bottom,rgba(57,255,20,0.07) 0px,rgba(57,255,20,0.07) 2px,transparent 2px,transparent 4px);animation:scanMove 6s linear infinite;pointer-events:none}
+    @keyframes scanMove{0%{transform:translateY(-100%)}100%{transform:translateY(100%)}}
+
+    .login-title{font-family:'Orbitron',sans-serif;color:#39ff14;font-size:26px;margin-bottom:20px;text-shadow:0 0 12px #39ff14,0 0 24px rgba(57,255,20,0.7);animation:holoFlicker 2.4s infinite}
+    @keyframes holoFlicker{0%,100%{opacity:1}48%{opacity:.75}51%{opacity:1}57%{opacity:.6}60%{opacity:1}}
+
+    .login-input{width:100%;padding:12px;border-radius:8px;margin-bottom:14px;border:1px solid #39ff14;background:#0c0c0c;color:#fff;box-shadow:0 0 10px rgba(57,255,20,0.25);caret-color:#39ff14;animation:inputIdle 1.4s infinite alternate}
+
+    .login-btn{width:100%;padding:12px;border:none;border-radius:8px;background:#39ff14;color:#001;font-weight:700;cursor:pointer;box-shadow:0 0 20px rgba(57,255,20,0.4);transition:0.2s}
+    .login-btn:hover{transform:scale(1.03);box-shadow:0 0 26px rgba(57,255,20,0.6)}
+
+    .login-error{color:#f44336;margin-top:10px;display:none;font-weight:bold}
+  </style>
+
+  
+
+  <h1 class="holo" id="mainTitle" style="display:none;">GyradoX Main Menu</h1>
+<h1 class="holo" id="iocTitle">GyradoX IOC Lookup</h1>
+<h1 class="holo" id="tiTitle" style="display:none;">GyradoX Threat Intel Dashboard</h1>
+
+<!-- MAIN MENU -->
+<div id="mainMenu" class="container" style="display:none; text-align:center;">
+  <h2 style="font-family:'Orbitron',sans-serif;color:var(--accent);">Welcome to GyradoX</h2>
+  <button id="goIOC" style="margin:12px;padding:14px 22px;border:none;border-radius:10px;background:var(--accent);color:#001;font-weight:700;cursor:pointer">GyradoX IOC Lookup</button>
+  <button id="goTI" style="margin:12px;padding:14px 22px;border:none;border-radius:10px;background:var(--accent);color:#001;font-weight:700;cursor:pointer">GyradoX Threat Intel Dashboard</button>
+  <button id="goMalwareSearch" style="margin:12px;padding:14px 22px;border:none;border-radius:10px;background:var(--accent);color:#001;font-weight:700;cursor:pointer">GyradoX Malware IOC Search</button>
+  <a href="/query"><button style="margin:12px;padding:14px 22px;border:none;border-radius:10px;background:var(--accent);color:#001;font-weight:700;cursor:pointer">GyradoX Query Builder</button></a>
+</div>
+
+  <canvas id="constellationCanvas" aria-hidden="true"></canvas>
+
+<!-- THREAT INTELLIGENCE FEEDS DASHBOARD PAGE -->
+<div id="tiPage" class="container" style="display:block; text-align:center; margin-top:120px; transform:none !important; max-height:70vh; overflow-y:auto;">
+  
+  
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;margin-top:30px;text-align:left;">
+
+<div class="result-card"><h3>Latest SHA256 Hash</h3><p id="malwareFeed" style="word-break:break-all;overflow-wrap:anywhere;">Loading...</p></div>
+<div class="result-card"><h3>Latest Malicious URL</h3><p id="phishingFeed" style="word-break:break-all;overflow-wrap:anywhere;">Loading...</p></div>
+<div class="result-card"><h3>Latest Malicious IP</h3><p id="botnetFeed" style="word-break:break-all;overflow-wrap:anywhere;">Loading...</p></div>
+<div class="result-card"><h3>Latest Malicious Domains</h3><p id="cveFeed" style="word-break:break-all;overflow-wrap:anywhere;">Loading...</p></div>
+
+    
+
+  </div>
+
+  <button id="tiBackMenu" style="margin-top:30px;padding:12px 20px;border:none;border-radius:10px;background:var(--accent);color:#001;font-weight:700;cursor:pointer">Main Menu</button>
+</div>
+
+  <div class="container" role="main" id="iocPage">
+    <div class="h-row">
+      <div class="h-item">
+        <label for="ipInput"><b>Enter IP Address</b></label>
+        <input id="ipInput" autocomplete="off" placeholder="8.8.8.8" />
+      </div>
+      <div class="h-item">
+        <label for="urlInput"><b>Enter URL</b></label>
+        <input id="urlInput" autocomplete="off" placeholder="example.com" />
+      </div>
+      <div class="h-item">
+        <label for="hashInput"><b>Enter File Hash</b></label>
+        <input id="hashInput" autocomplete="off" placeholder="SHA256 / MD5 / SHA1" />
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="searchBtn">Search</button>
+      <button id="askAiBtn" style="margin-left:16px;min-width:160px;padding:12px 18px;border-radius:10px;border:none;background:var(--accent);color:#001;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(57,255,20,0.25);">Ask AI</button>
+      <button id="backMenuBtn" style="margin-left:16px;min-width:160px;padding:12px 18px;border-radius:10px;border:none;background:var(--accent);color:#001;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(0,225,255,0.25);">Main Menu</button>
+    </div>
+
+    <div id="results" style="display:none"></div>
+  </div>
+
+  <div id="copyToast" style="position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:rgba(57,255,20,0.9);color:#001;padding:12px 22px;border-radius:10px;font-weight:700;font-family:'Orbitron',sans-serif;box-shadow:0 0 14px #39ff14;opacity:0;pointer-events:none;transition:opacity .3s, transform .3s;z-index:99999">Copied!</div>
+  <div id="signatureSR" style="position:fixed;right:20px;bottom:12px;color:#39ff14;font-family:'Orbitron',sans-serif;font-size:14px;opacity:0.85;z-index:9999;letter-spacing:2px;text-shadow:0 0 6px #39ff14,0 0 12px rgba(57,255,20,0.6);">SR</div>
+
+  <script>
+    // --- Ensure copy helpers are available globally BEFORE any inline onclick runs ---
+    (function(){
+      window.copyText = function(v){
+        try{
+          const temp = document.createElement('textarea');
+          temp.value = v || '';
+          document.body.appendChild(temp);
+          temp.select();
+          document.execCommand('copy');
+          document.body.removeChild(temp);
+        }catch(e){
+          console.warn('copy failed', e);
+        }
+        // show toast if possible
+        const t = document.getElementById('copyToast');
+        if(t){ t.style.opacity = '1'; t.style.transform = 'translateX(-50%) translateY(-10px)'; setTimeout(()=>{ t.style.opacity = '0'; t.style.transform = 'translateX(-50%) translateY(0px)'; }, 1200); }
+      };
+
+      window.copySection = function(button){
+        try{
+          const card = button.closest('.result-card');
+          if(!card) return;
+          const temp = document.createElement('textarea');
+          // Remove 'Copy' label if present and trim
+          temp.value = card.innerText.replace(/Copy/g, '').trim();
+          document.body.appendChild(temp);
+          temp.select();
+          document.execCommand('copy');
+          document.body.removeChild(temp);
+        }catch(e){ console.warn('copy failed', e); }
+        const t = document.getElementById('copyToast');
+        if(t){ t.style.opacity = '1'; t.style.transform = 'translateX(-50%) translateY(-10px)'; setTimeout(()=>{ t.style.opacity = '0'; t.style.transform = 'translateX(-50%) translateY(0px)'; }, 1200); }
+      };
+    })();
+
+    // Wrap setup in DOMContentLoaded to avoid referencing elements before they exist
+    document.addEventListener('DOMContentLoaded', () => {
+  const UI_PASSWORD = "Test123";
+  const $ = id => document.getElementById(id);
+
+  const loginOverlay = $('loginOverlay');
+  const loginPass = $('loginPass');
+  const loginBtn = $('loginBtn');
+  const loginError = $('loginError');
+
+  const mainMenu = $('mainMenu');
+  const mainTitle = $('mainTitle');
+  const iocTitle = $('iocTitle');
+  const iocPage = $('iocPage');
+
+  function showMenu(){
+    document.getElementById('tiTitle').style.display = 'none';
+    mainMenu.style.display = 'block';
+    mainTitle.style.display = 'block';
+    iocPage.style.display = 'none';
+    iocTitle.style.display = 'none';
+    const tiPage = document.getElementById('tiPage');
+    if(tiPage) tiPage.style.display = 'none';
+  }
+
+  function showTI(){
+    // Reset TI feeds before loading fresh data
+    document.getElementById('malwareFeed').innerHTML = 'Loading...';
+    document.getElementById('phishingFeed').innerHTML = 'Loading...';
+    document.getElementById('botnetFeed').innerHTML = 'Loading...';
+    document.getElementById('cveFeed').innerHTML = 'Loading...';
+    document.getElementById('tiTitle').style.display = 'block';
+    loadThreatFox();
+    mainMenu.style.display = 'none';
+    mainTitle.style.display = 'none';
+    iocPage.style.display = 'none';
+    iocTitle.style.display = 'none';
+    const tiPage = document.getElementById('tiPage');
+    if(tiPage) tiPage.style.display = 'block';
+  }
+
+  function showIOC(){
+    // Reset IOC page inputs and results
+    document.getElementById('ipInput').value = '';
+    document.getElementById('urlInput').value = '';
+    document.getElementById('hashInput').value = '';
+    const rBox = document.getElementById('results');
+    if(rBox){ rBox.style.display='none'; rBox.innerHTML=''; }
+    document.getElementById('tiTitle').style.display = 'none';
+    mainMenu.style.display = 'none';
+    mainTitle.style.display = 'none';
+    iocPage.style.display = 'block';
+    iocTitle.style.display = 'block';
+  }
+
+  const goIOC = $('goIOC');
+  if(goIOC) goIOC.onclick = showIOC;
+
+const goTI = $('goTI');
+  if(goTI) goTI.onclick = showTI;
+
+  function checkLogin(){
+    const input = loginPass.value || '';
+    if(input === UI_PASSWORD){
+      loginOverlay.style.display = 'none';
+      showMenu();
+    } else {
+      loginError.style.display = 'block';
+      loginError.innerText = 'Incorrect password';
+      const card = loginBtn.closest('.login-card');
+      if(card){ card.animate([{transform:'translateX(0)'},{transform:'translateX(-8px)'},{transform:'translateX(8px)'},{transform:'translateX(0)'}],{duration:300}); }
+    }
+  }
+
+  // Attach login handler
+      if(loginBtn) loginBtn.addEventListener('click', checkLogin);
+      if(loginPass) loginPass.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') checkLogin(); });('click', checkLogin);
+      if(loginPass) loginPass.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') checkLogin(); });
+
+      // typing effect
+      if(loginPass) loginPass.addEventListener('input', ()=>{ loginPass.classList.remove('typing-effect'); void loginPass.offsetWidth; loginPass.classList.add('typing-effect'); });
+
+      // -----------------------
+      // Backend proxy functions
+      // ThreatFox Feeds Fetchers
+      async function loadThreatFox(){ console.log('Loading ThreatFox feeds...');
+        const endpoints = {
+          malware: 'http://localhost:5000/threatfox/malware',
+          phishing: 'http://localhost:5000/threatfox/phishing',
+          botnet: 'http://localhost:5000/threatfox/botnets',
+          cve: 'http://localhost:5000/threatfox/cve',
+          
+        };
+        function formatEntry(e){
+          const dates = [];
+          if(e.first_seen) dates.push(`First Seen: ${e.first_seen}`);
+          if(e.firstseen) dates.push(`First Seen: ${e.firstseen}`);
+          if(e.last_seen) dates.push(`Last Seen: ${e.last_seen}`);
+          if(e.timestamp) dates.push(`Timestamp: ${e.timestamp}`);
+          if(e.date_added) dates.push(`Date Added: ${e.date_added}`);
+
+          const dateBlock = dates.length ? `<br><small>${dates.join('<br>')}</small>` : '';
+
+          return `
+            <div>
+              <b>Type:</b> ${e.ioc_type || 'N/A'}<br>
+              <b>IOC:</b> ${e.ioc_value || e.ioc || 'N/A'}<br>
+              <b>Threat Type:</b> ${e.threat_type || 'N/A'}<br>
+              <b>Malware:</b> ${e.malware_printable || e.malware || 'N/A'}<br>
+              <b>Malware Alias:</b> ${e.malware_alias || 'N/A'}<br>
+              <b>First Seen UTC:</b> ${e.first_seen_utc || e.first_seen || 'N/A'}<br>
+              <b>Confidence Level:</b> ${e.confidence_level || 'N/A'}<br>
+              <b>Tags:</b> ${e.tags || 'N/A'}
+              ${dateBlock}
+            </div>
+          `;
+        }
+        async function fill(id,url){ try{ const r=await fetch(url); console.log('Fetched', url, r); const j=await r.json(); console.log('Response JSON for', id, j); const arr = j && j.data ? Object.values(j.data).flat() : [];
+        document.getElementById(id).innerHTML = arr.slice(0,10).map(formatEntry).join('<hr>'); }catch{ document.getElementById(id).innerHTML='Error loading feed'; } }
+        fill('malwareFeed', endpoints.malware);
+        fill('phishingFeed', endpoints.phishing);
+        fill('botnetFeed', endpoints.botnet);
+        fill('cveFeed', endpoints.cve);
+        
+      }
+      // -----------------------
+      async function fetchVT_IP(ip){ const r = await fetch(`http://localhost:5000/vt/ip/${encodeURIComponent(ip)}`); if(!r.ok) throw new Error('VT IP proxy error: ' + r.status); return r.json(); }
+      async function fetchVT_URL(url){ const r = await fetch(`http://localhost:5000/vt/url`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({url}) }); if(!r.ok) throw new Error('VT URL proxy error: ' + r.status); return r.json(); }
+      async function fetchVT_ANALYSIS(scanId){ const r = await fetch(`http://localhost:5000/vt/analysis/${encodeURIComponent(scanId)}`); if(!r.ok) throw new Error('VT analysis proxy error: ' + r.status); return r.json(); }
+      async function fetchVT_HASH(hash){ const r = await fetch(`http://localhost:5000/vt/hash/${encodeURIComponent(hash)}`); if(!r.ok) throw new Error('VT hash proxy error: ' + r.status); return r.json(); }
+      async function fetchAbuse(ip){ const r = await fetch(`http://localhost:5000/abuse/${encodeURIComponent(ip)}`); if(!r.ok) throw new Error('AbuseIPDB proxy error: ' + r.status); return r.json(); }
+
+      function getThreatClass(m){ if(!m||m===0) return 'safe'; if(m<=3) return 'warning'; return 'danger'; }
+
+      // -----------------------
+      // Single-input enforcement
+      // -----------------------
+      function handleSingleInput(){
+        const ip = $('ipInput');
+        const url = $('urlInput');
+        const hash = $('hashInput');
+
+        if(ip.value && ip.value.trim() !== ''){ url.disabled = true; hash.disabled = true; }
+        else if(url.value && url.value.trim() !== ''){ ip.disabled = true; hash.disabled = true; }
+        else if(hash.value && hash.value.trim() !== ''){ ip.disabled = true; url.disabled = true; }
+        else { ip.disabled = false; url.disabled = false; hash.disabled = false; }
+      }
+
+      ['ipInput','urlInput','hashInput'].forEach(id => { const el = $(id); if(el) el.addEventListener('input', handleSingleInput); });
+
+      // -----------------------
+      // Search logic
+      // -----------------------
+      async function runLookup(){
+        const ip = $('ipInput')?.value.trim() || '';
+        const url = $('urlInput')?.value.trim() || '';
+        const hash = $('hashInput')?.value.trim() || '';
+        const box = $('results');
+
+        const filled = [ip?1:0, url?1:0, hash?1:0].reduce((a,b)=>a+b,0);
+        if(filled === 0){ box.style.display='block'; box.innerHTML = '<div class="result-card">Enter at least one field.</div>';  return; }
+        if(filled > 1){ box.style.display='block'; box.innerHTML = '<div class="result-card">Please enter ONLY one: IP or URL or Hash.</div>';  return; }
+
+        box.style.display='block'; box.innerHTML = '<div class="result-card"><div style="display:flex;align-items:center;gap:12px"><div class="loader" style="border-top-color:var(--accent)"></div><div>Searching...</div></div></div>';
+
+        let out = '';
+
+        if(ip){
+          try{
+            const vt = await fetchVT_IP(ip);
+            const stats = vt?.data?.attributes?.last_analysis_stats ?? {};
+            const m = stats.malicious ?? 0;
+            out += `<div class="result-card"><strong>VirusTotal IP Report</strong> <button onclick="copySection(this)" style="margin-left:8px;padding:4px 10px;border:none;border-radius:6px;background:var(--accent);color:#001;font-weight:700;cursor:pointer">Copy</button><div>IP: ${ip}</div><div>Malicious: <span class="${getThreatClass(m)}">${m}</span></div><div>Reference: <a href="https://www.virustotal.com/gui/ip-address/${ip}" target="_blank" style="color:var(--accent);text-decoration:underline;">https://www.virustotal.com/gui/ip-address/${ip}</a></div></div>`;
+          }catch(e){ out += `<div class="result-card">VirusTotal IP lookup failed: ${e.message}</div>`; }
+
+          try{
+            const abuse = await fetchAbuse(ip);
+            const score = abuse?.data?.abuseConfidenceScore ?? 0;
+            out += `<div class="result-card"><strong>AbuseIPDB Report</strong> <button onclick="copySection(this)" style="margin-left:8px;padding:4px 10px;border:none;border-radius:6px;background:var(--accent);color:#001;font-weight:700;cursor:pointer">Copy</button><div>IP: ${ip}</div><div>Abuse Score: <span class="${getThreatClass(score)}">${score}</span></div><div>Count of IP report on AbuseIPDB: ${abuse?.data?.totalReports ?? 'N/A'}</div><div>ISP: ${abuse?.data?.isp ?? 'N/A'}</div><div>Usage Type: ${abuse?.data?.usageType ?? 'N/A'}</div><div>ASN: ${abuse?.data?.asn ?? 'N/A'}</div><div>Domain: ${abuse?.data?.domain ?? 'N/A'}</div><div>Country: ${abuse?.data?.countryCode ?? 'N/A'}</div><div>City: ${abuse?.data?.city ?? 'N/A'}</div><div>Reference: <a href="https://www.abuseipdb.com/check/${ip}" target="_blank" style="color:var(--accent);text-decoration:underline;">https://www.abuseipdb.com/check/${ip}</a></div></div>`;
+          }catch(e){ out += `<div class="result-card">AbuseIPDB lookup failed: ${e.message}</div>`; }
+        }
+
+        if(url){
+          // -----------------------
+          // WHOISXMLAPI LOOKUP (NEW)
+          // -----------------------
+          try {
+            const whois = await fetch(`http://localhost:5000/whoisxml/${encodeURIComponent(url)}`);
+            const whoisData = await whois.json();
+
+            out += `<div class="result-card"><strong>Domain Lookup</strong>
+              <button onclick="copySection(this)" style="margin-left:8px;padding:4px 10px;border:none;border-radius:6px;background:var(--accent);color:#001;font-weight:700;cursor:pointer">Copy</button>
+              <div>Domain: ${url}</div>
+              <div>Registrar: ${whoisData?.WhoisRecord?.registrarName || 'N/A'}</div>
+              <div>Created Date: ${whoisData?.WhoisRecord?.createdDate || 'N/A'}</div>
+              <div>Domain Age: ${(()=>{const d=whoisData?.WhoisRecord?.createdDate; if(!d) return 'N/A'; const cd=new Date(d); if(cd.toString()==='Invalid Date') return 'N/A'; const diffDays=Math.floor((Date.now()-cd.getTime())/86400000); const years=Math.floor(diffDays/365); const months=Math.floor((diffDays%365)/30); return `${years}y ${months}m (${diffDays} days)`;})()}</div>
+              <div>Updated Date: ${whoisData?.WhoisRecord?.updatedDate || 'N/A'}</div>
+              <div>Expires Date: ${whoisData?.WhoisRecord?.expiresDate || 'N/A'}</div>
+              <div>Registrant: ${whoisData?.WhoisRecord?.registrant?.organization || 'N/A'}</div>
+              <div>Country: ${whoisData?.WhoisRecord?.registrant?.country || 'N/A'}</div>
+            </div>`;
+          } catch(e) {
+            out += `<div class='result-card'>WhoisXMLAPI lookup failed: ${e.message}</div>`;
+          }
+
+          // -----------------------
+          // Existing VIRUSTOTAL URL lookup
+          // -----------------------
+          try{
+            const submit = await fetch(`http://localhost:5000/vt/url`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url}) });
+            const s = await submit.json();
+            const scanId = s?.data?.id;
+            if(scanId){
+              const analysis = await fetchVT_ANALYSIS(scanId);
+              const st = analysis?.data?.attributes?.stats ?? {};
+              const m = st.malicious ?? 0;
+              out += `<div class="result-card"><strong>VirusTotal URL Report</strong> <button onclick="copySection(this)" style="margin-left:8px;padding:4px 10px;border:none;border-radius:6px;background:var(--accent);color:#001;font-weight:700;cursor:pointer">Copy</button><div>URL: <a href="https://www.virustotal.com/gui/url/${encodeURIComponent(url)}" target="_blank" style="color:var(--accent);text-decoration:underline;">https://www.virustotal.com/gui/url/${encodeURIComponent(url)}</a></div><div>Malicious: <span class="${getThreatClass(m)}">${m}</span></div></div>`;
+            } else {
+              out += `<div class="result-card">VirusTotal URL submission returned no scan id.</div>`;
+            }
+          }catch(e){ out += `<div class="result-card">URL lookup failed: ${e.message}</div>`; }
+        }
+
+        if(hash){
+          try{
+            const h = await fetchVT_HASH(hash);
+            const stats = h?.data?.attributes?.last_analysis_stats ?? {};
+            const m = stats.malicious ?? 0;
+            out += `<div class="result-card"><strong>VirusTotal Hash Report</strong>
+<div>Hash: ${hash}</div>
+<div>Reference: <a href="https://www.virustotal.com/gui/file/${hash}" target="_blank" style="color:var(--accent);text-decoration:underline;">https://www.virustotal.com/gui/file/${hash}</a></div>
+<button onclick="copyText('https://www.virustotal.com/gui/file/${hash}')" style="margin-top:6px;padding:6px 12px;border:none;border-radius:6px;background:var(--accent);color:#001;font-weight:700;cursor:pointer">Copy URL</button>
+<div>Malicious: <span class="${getThreatClass(m)}">${m}</span></div>
+<div>File Type: ${h?.data?.attributes?.type_description || 'N/A'}</div>
+<div>File Size: ${h?.data?.attributes?.size || 'N/A'} bytes</div>
+<div>Threat Label: ${h?.data?.attributes?.popular_threat_classification?.suggested_threat_label || 'N/A'}</div>
+<div>Threat Family: ${h?.data?.attributes?.popular_threat_classification?.family || 'N/A'}</div>
+<div>Tags: ${(h?.data?.attributes?.tags || []).join(', ') || 'N/A'}</div>
+<div>First Submission: ${h?.data?.attributes?.first_submission_date ? new Date(h.data.attributes.first_submission_date*1000).toLocaleString() : 'N/A'}</div>
+<div>Last Analysis: ${h?.data?.attributes?.last_analysis_date ? new Date(h.data.attributes.last_analysis_date*1000).toLocaleString() : 'N/A'}</div>
+<div>Reputation Score: ${h?.data?.attributes?.reputation || 0}</div>
+<div>Imphash: ${h?.data?.attributes?.pe_info?.imphash || 'N/A'}</div>
+<div>SSDeep: ${h?.data?.attributes?.ssdeep || 'N/A'}</div>
+<div>VHash: ${h?.data?.attributes?.vhash || 'N/A'}</div>
+<div>Signature Info: ${JSON.stringify(h?.data?.attributes?.signature_info || 'N/A')}</div>
+</div>`;
+          }catch(e){ out += `<div class="result-card">Hash lookup failed: ${e.message}</div>`; }
+        }
+
+        box.innerHTML = out || '<div class="result-card">No results returned.</div>';
+      }
+
+      async function runAskAI(){
+        const ip = $('ipInput')?.value.trim() || '';
+        const url = $('urlInput')?.value.trim() || '';
+        const hash = $('hashInput')?.value.trim() || '';
+        const box = $('results');
+
+        const filled = [ip?1:0, url?1:0, hash?1:0].reduce((a,b)=>a+b,0);
+        if(filled === 0){ box.style.display='block'; box.innerHTML = '<div class="result-card">Enter at least one field.</div>'; return; }
+        if(filled > 1){ box.style.display='block'; box.innerHTML = '<div class="result-card">Please enter ONLY one: IP or URL or Hash.</div>'; return; }
+
+        box.style.display='block'; box.innerHTML = '<div class="result-card"><div style="display:flex;align-items:center;gap:12px"><div class="loader" style="border-top-color:#00e1ff"></div><div>Asking AI...</div></div></div>';
+
+        try{
+          const r = await fetch('http://localhost:5000/askai',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ip, url, hash }) });
+          const data = await r.json();
+          box.innerHTML += `<hr class='ai-divider' style="border:0;border-top:1px solid rgba(57,255,20,0.35);margin:18px 0;">`;
+          box.innerHTML += `<div class='result-card'><strong>AI Response</strong><p>${data.answer ?? 'No response'}</p></div>`;
+        }
+        catch(e){
+          box.innerHTML += `<hr class='ai-divider' style="border:0;border-top:1px solid rgba(57,255,20,0.35);margin:18px 0;">`;
+          box.innerHTML += `<div class='result-card'>AI request failed: ${e.message}</div>`;
+        }
+      }
+
+      // hook buttons
+      const backMenuBtn = $('backMenuBtn');
+      if(backMenuBtn) backMenuBtn.addEventListener('click', showMenu);
+
+      const tiBackMenu = document.getElementById('tiBackMenu');
+      if(tiBackMenu) tiBackMenu.addEventListener('click', showMenu);
+
+      // hook buttons
+      const searchBtn = $('searchBtn');
+      const askAiBtn = $('askAiBtn');
+      if(searchBtn) searchBtn.addEventListener('click', runLookup);
+      if(askAiBtn) askAiBtn.addEventListener('click', runAskAI);
+
+      // -----------------------
+      // Constellation Canvas
+      // -----------------------
+      const canvas = $('constellationCanvas');
+      const ctx = canvas.getContext && canvas.getContext('2d');
+      let W = canvas ? (canvas.width = window.innerWidth) : 0;
+      let H = canvas ? (canvas.height = window.innerHeight) : 0;
+      window.addEventListener('resize', ()=>{ if(canvas){ W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; initParticles(); } });
+
+      const particles = []; const bgParticles = [];
+      const FRONT_COUNT = 90; const BACK_COUNT = 60;
+      function initParticles(){ particles.length=0; bgParticles.length=0; if(!canvas) return; for(let i=0;i<FRONT_COUNT;i++) particles.push({ x: Math.random()*W, y: Math.random()*H, vx:(Math.random()-0.5)*0.6, vy:(Math.random()-0.5)*0.6, r: Math.random()*3+2 }); for(let i=0;i<BACK_COUNT;i++) bgParticles.push({ x: Math.random()*W, y: Math.random()*H, vx:(Math.random()-0.5)*0.25, vy:(Math.random()-0.5)*0.25, r: Math.random()*1.6+0.6 }); }
+      if(canvas) initParticles();
+
+      const mouse = { x: W/2, y: H/2, active:false };
+      window.addEventListener('mousemove', e=>{ mouse.x = e.clientX; mouse.y = e.clientY; mouse.active = true; });
+      window.addEventListener('mouseout', ()=>{ mouse.active = false; });
+
+      function step(){
+        if(!canvas || !ctx) return; ctx.clearRect(0,0,W,H);
+        for(let i=0;i<bgParticles.length;i++){
+          const p = bgParticles[i]; p.x += p.vx; p.y += p.vy;
+          if(p.x < 0) { p.x = 0; p.vx *= -1; } if(p.x > W) { p.x = W; p.vx *= -1; }
+          if(p.y < 0) { p.y = 0; p.vy *= -1; } if(p.y > H) { p.y = H; p.vy *= -1; }
+          if(mouse.active){ const nx = (mouse.x / W - 0.5)*2; const ny = (mouse.y / H - 0.5)*2; p.x += nx * 0.06 * (p.r/2); p.y += ny * 0.06 * (p.r/2); }
+          ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fillStyle = 'rgba(120,150,255,0.22)'; ctx.fill();
+        }
+        for(let i=0;i<bgParticles.length;i++) for(let j=i+1;j<bgParticles.length;j++){ const a=bgParticles[i], b=bgParticles[j]; const dx=a.x-b.x, dy=a.y-b.y, d=Math.hypot(dx,dy); if(d<130){ ctx.strokeStyle = `rgba(120,150,255,${(130-d)/130*0.22})`; ctx.lineWidth=0.35; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }}
+
+        for(let i=0;i<particles.length;i++){
+          const p = particles[i]; p.x += p.vx; p.y += p.vy;
+          if(p.x < 0) { p.x = 0; p.vx *= -1; } if(p.x > W) { p.x = W; p.vx *= -1; }
+          if(p.y < 0) { p.y = 0; p.vy *= -1; } if(p.y > H) { p.y = H; p.vy *= -1; }
+          if(mouse.active){ const nx = (mouse.x / W - 0.5)*2; const ny = (mouse.y / H - 0.5)*2; p.x += nx * 0.18 * (p.r/4); p.y += ny * 0.18 * (p.r/4);
+            const dx = mouse.x - p.x, dy = mouse.y - p.y, dist = Math.hypot(dx,dy); if(dist < 220 && dist > 0){ const force = (220-dist)/220; const fx=(dx/dist)*force*1.2; const fy=(dy/dist)*force*1.2; p.vx += fx*0.015; p.vy += fy*0.015; }}
+          p.vx *= 0.995; p.vy *= 0.995;
+          ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fillStyle = 'rgba(57,255,20,0.95)'; ctx.fill();
+        }
+        for(let i=0;i<particles.length;i++) for(let j=i+1;j<particles.length;j++){ const a=particles[i], b=particles[j]; const dx=a.x-b.x, dy=a.y-b.y, d=Math.hypot(dx,dy); if(d<120){ ctx.strokeStyle = `rgba(57,255,20,${(120-d)/120*0.9})`; ctx.lineWidth=0.6; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }}
+
+        requestAnimationFrame(step);
+      }
+      if(canvas && ctx) step();
+
+    }); // DOMContentLoaded
+  
+function exportMalwareCSV(){
+  const box = document.getElementById('malwareResults');
+  const cards = box.querySelectorAll('.result-card');
+  const rows = [['IOC','Type','Malware','Alias','Threat Type','First Seen','Tags']];
+  cards.forEach(card=>{
+    const text = card.innerText;
+    if(text.includes('IOC:')){
+      const get = label=>{
+        const m = text.match(new RegExp(label+": (.*)"));
+        return m? m[1].split('\n')[0] : '';
+      };
+      rows.push([
+        get('IOC'),
+        get('Type'),
+        get('Malware'),
+        get('Alias'),
+        get('Threat Type'),
+        get('First Seen'),
+        get('Tags')
+      ]);
+    }
+  });
+  let csv = rows.map(r=>r.map(v=>`"${v.replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv],{type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'malware_iocs.csv';
+  a.click();
+}
+</script>
+<!-- MALWARE IOC SEARCH PAGE -->
+<div id="malwarePage" class="container" style="display:none; text-align:center; margin-top:120px;">
+  <h2 style="font-family:'Orbitron',sans-serif;color:var(--accent);">GyradoX Malware IOC Search</h2>
+  <input id="malwareQuery" placeholder="Enter malware or threat name" style="width:60%;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);font-size:14px;">
+  <button id="malwareSearchBtn" style="margin-left:16px;min-width:140px;padding:12px 18px;border-radius:10px;border:none;background:var(--accent);color:#001;font-weight:700;cursor:pointer;">Search</button>
+  <button id="malwareBackMenu" style="margin-left:16px;min-width:120px;padding:12px 18px;border-radius:10px;border:none;background:var(--accent);color:#001;font-weight:700;cursor:pointer;">Main Menu</button>
+  <div id="malwareResults" style="margin-top:20px;text-align:left;display:none; max-height:60vh; overflow-y:auto;"></div>
+</div>
+
+<script>
+// Malware Search Navigation
+const goMalwareSearch = document.getElementById('goMalwareSearch');
+if(goMalwareSearch) goMalwareSearch.onclick = ()=>{
+  // Reset Malware Search page
+  document.getElementById('malwareQuery').value='';
+  const mb = document.getElementById('malwareResults');
+  if(mb){ mb.style.display='none'; mb.innerHTML=''; }
+  document.getElementById('mainTitle').style.display='none';
+  document.getElementById('mainMenu').style.display='none';
+  document.getElementById('malwarePage').style.display='block';
+  document.getElementById('tiPage').style.display='none';
+  document.getElementById('iocPage').style.display='none';
+};
+
+const malwareBackMenu = document.getElementById('malwareBackMenu');
+if(malwareBackMenu) malwareBackMenu.onclick = ()=>{
+  document.getElementById('mainTitle').style.display='block';
+  document.getElementById('malwarePage').style.display='none';
+  document.getElementById('mainMenu').style.display='block';
+};
+
+// Malware IOC Search Function
+const malwareSearchBtn = document.getElementById('malwareSearchBtn');
+if(malwareSearchBtn) malwareSearchBtn.onclick = async ()=>{
+  const q = document.getElementById('malwareQuery').value.trim();
+  const box = document.getElementById('malwareResults');
+  if(!q){ box.style.display='block'; box.innerHTML='<div class="result-card">Please enter a malware name.</div>'; return; }
+
+  box.style.display='block';
+  box.innerHTML = '<div class="result-card">Searching...</div>';
+
+  try{
+    const r = await fetch('http://localhost:5000/threatfox/search/' + encodeURIComponent(q));
+    const j = await r.json();
+
+    if(!j.data || j.data.length === 0){
+      box.innerHTML = '<div class="result-card">No IOCs found.</div>';
+      return;
+    }
+
+    const items = j.data;
+    // Build OR query
+    const queryStr = '("' + items.map(e => ('*' + (e.ioc_value || e.ioc || '').replace(/"/g, '') + '*')).join('" OR "') + '")';
+
+    box.innerHTML = `<div class='result-card'><b>Query Builder:</b><br>
+<button onclick="copyText(this.closest('.result-card').querySelector('textarea').value)" style="margin-bottom:8px;padding:6px 12px;border:none;border-radius:6px;background:var(--accent);color:#001;font-weight:700;cursor:pointer">Copy Query</button>
+<button onclick="exportMalwareCSV()" style="margin-left:8px;margin-bottom:8px;padding:6px 12px;border:none;border-radius:6px;background:var(--accent);color:#001;font-weight:700;cursor:pointer">Export CSV</button><br>
+<textarea style="width:100%;height:80px;border-radius:8px;padding:8px;background:var(--input-bg);color:var(--text);">${queryStr}</textarea></div><hr>` + items.map(e=>`
+      <div class='result-card'>
+        <b>IOC:</b> ${e.ioc_value || e.ioc || 'N/A'}<br>
+        <b>Type:</b> ${e.ioc_type || 'N/A'}<br>
+        <b>Malware:</b> ${e.malware || 'N/A'}<br>
+        <b>Alias:</b> ${e.malware_alias || 'N/A'}<br>
+        <b>Threat Type:</b> ${e.threat_type || 'N/A'}<br>
+        <b>First Seen:</b> ${e.first_seen_utc || e.timestamp || 'N/A'}<br>
+        <b>Tags:</b> ${e.tags || 'N/A'}
+      </div>
+    `).join('<hr>');
+  }catch(e){ box.innerHTML = '<div class="result-card">Search failed.</div>'; }
+};
+</script>
+
+</body>
+</html>
