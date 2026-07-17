@@ -1,5 +1,7 @@
-# GyradoX
-AI-powered IOC Investigation &amp; Threat Intel Platform
+# GyradoX - AI-powered IOC Investigation &amp; Threat Intel Platform
+
+<img width="1080" height="1080" alt="logo" src="https://github.com/user-attachments/assets/4146a647-e2e1-4469-971b-0800b8b78828" />
+
 
 ## Description
 GyradoX is an AI-powered Security Operations Center (SOC) investigation and threat intelligence platform designed to streamline incident response, IOC enrichment, and threat hunting workflows. It consolidates data from multiple threat intelligence sources into a single interface, enabling security analysts to investigate indicators of compromise (IOCs) more efficiently and reduce manual analysis time.
